@@ -224,3 +224,6 @@ __marimo__/
 # macOS
 .DS_Store
 ._*
+
+# Local database metadata
+/db_meta.json

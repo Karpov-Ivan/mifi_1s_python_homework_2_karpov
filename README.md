@@ -33,3 +33,24 @@ uv run ruff format --check .
 ```sh
 uv run ruff format .
 ```
+
+## Управление таблицами
+
+Запуск: `uv run project`. Типы столбцов: `int`, `str`, `bool`.
+Столбец `ID:int` добавляется автоматически.
+
+- `create_table <имя> <столбец:тип> ...` — создать таблицу.
+- `list_tables` — показать таблицы.
+- `drop_table <имя>` — удалить таблицу.
+- `help` — справка; `exit` — выход.
+
+Пример команд внутри программы:
+
+```text
+create_table users name:str age:int is_active:bool
+list_tables
+drop_table users
+exit
+```
+
+Метаданные сохраняются в `db_meta.json` в текущей директории.
