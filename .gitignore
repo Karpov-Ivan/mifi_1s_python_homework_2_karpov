@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+/tasks/
+
+# macOS
+.DS_Store
+._*
