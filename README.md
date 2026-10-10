@@ -54,3 +54,7 @@ exit
 ```
 
 Метаданные сохраняются в `db_meta.json` в текущей директории.
+
+## Демонстрация
+
+[![Запись работы базы данных](https://asciinema.org/a/8GKq6TdJgqnBCxAg.svg)](https://asciinema.org/a/8GKq6TdJgqnBCxAg)
