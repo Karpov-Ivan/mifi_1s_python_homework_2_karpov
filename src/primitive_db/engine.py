@@ -13,6 +13,7 @@ from primitive_db.core import (
     validate_clause,
     validate_table_data,
 )
+from primitive_db.decorators import handle_db_errors
 from primitive_db.parser import parse_command
 from primitive_db.utils import (
     delete_table_data,
@@ -36,9 +37,11 @@ def print_help() -> None:
     print("delete from <таблица> where <столбец> = <значение> - удалить записи")
     print("info <таблица> - информация о таблице")
     print("Строки — в кавычках; типы: int, str, bool (true/false). ID автоматический.")
+    print("Удаление требует подтверждения y; любой другой ответ отменяет операцию.")
     print("help - справка; exit - выход")
 
 
+@handle_db_errors
 def execute_crud(metadata: dict, request: dict) -> None:
     command = request["command"]
     table_name = request["table_name"]
@@ -51,6 +54,8 @@ def execute_crud(metadata: dict, request: dict) -> None:
 
     if command == "insert":
         result = insert(metadata, table_name, request["values"])
+        if result is None:
+            return
         save_table_data(table_name, result)
         print(
             f"Запись с ID={result[-1]['ID']} успешно добавлена "
@@ -58,7 +63,10 @@ def execute_crud(metadata: dict, request: dict) -> None:
         )
     elif command == "select":
         table = PrettyTable([column["name"] for column in schema])
-        for row in select(table_data, where_clause):
+        result = select(table_data, where_clause)
+        if result is None:
+            return
+        for row in result:
             table.add_row([row[column["name"]] for column in schema])
         print(table)
     elif command == "info":
@@ -67,6 +75,12 @@ def execute_crud(metadata: dict, request: dict) -> None:
         print(f"Столбцы: {columns}")
         print(f"Количество записей: {len(table_data)}")
     elif command in {"update", "delete"}:
+        selected = select(table_data, where_clause)
+        if selected is None:
+            return
+        if not selected:
+            print("Подходящих записей нет.")
+            return
         if command == "update":
             validate_clause(schema, request["set_clause"], updating=True)
             result = update(table_data, request["set_clause"], where_clause)
@@ -74,15 +88,14 @@ def execute_crud(metadata: dict, request: dict) -> None:
         else:
             result = delete(table_data, where_clause)
             action = "удалена"
-        matches = select(table_data, where_clause)
-        if not matches:
-            print("Подходящих записей нет.")
+        if result is None:
             return
         save_table_data(table_name, result)
-        for row in matches:
+        for row in selected:
             print(f'Запись с ID={row["ID"]} в таблице "{table_name}" успешно {action}.')
 
 
+@handle_db_errors
 def execute(metadata: dict, request: dict) -> None:
     command = request["command"]
     previous = metadata.copy()
@@ -104,24 +117,31 @@ def execute(metadata: dict, request: dict) -> None:
         execute_crud(metadata, request)
 
 
+@handle_db_errors
+def read_metadata():
+    return load_metadata(METADATA_FILE)
+
+
+@handle_db_errors
+def process_command(metadata: dict, user_input: str) -> bool:
+    request = parse_command(user_input)
+    if request["command"] == "exit":
+        return True
+    execute(metadata, request)
+    return False
+
+
 def run() -> None:
     print("***База данных***")
     print_help()
     while True:
-        try:
-            metadata = load_metadata(METADATA_FILE)
-        except (OSError, ValueError) as error:
-            print(f"Ошибка чтения метаданных: {error}")
+        metadata = read_metadata()
+        if metadata is None:
             return
         try:
             user_input = prompt.string("Введите команду: ")
         except (EOFError, KeyboardInterrupt):
             print()
             return
-        try:
-            request = parse_command(user_input)
-            if request["command"] == "exit":
-                return
-            execute(metadata, request)
-        except (OSError, ValueError) as error:
-            print(f"Ошибка: {error}")
+        if process_command(metadata, user_input):
+            return

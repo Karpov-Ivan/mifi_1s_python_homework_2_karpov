@@ -1,23 +1,30 @@
+import json
+
+from primitive_db.decorators import (
+    confirm_action,
+    create_cacher,
+    handle_db_errors,
+    log_time,
+)
 from primitive_db.utils import load_table_data
 
 SUPPORTED_TYPES = {"int", "str", "bool"}
+_select_cache = create_cacher()
 
 
+@handle_db_errors
 def create_table(metadata: dict, table_name: str, columns: list[str]) -> dict:
     if table_name in metadata:
-        print(f'Ошибка: Таблица "{table_name}" уже существует.')
-        return metadata
+        raise ValueError(f'Таблица "{table_name}" уже существует.')
     if not table_name.isidentifier() or not columns:
-        print(f"Некорректное значение: {table_name}. Попробуйте снова.")
-        return metadata
+        raise ValueError(f"Некорректное значение: {table_name}. Попробуйте снова.")
 
     schema = [{"name": "ID", "type": "int"}]
     names = set()
     for column in columns:
         parts = column.split(":")
         if len(parts) != 2:
-            print(f"Некорректное значение: {column}. Попробуйте снова.")
-            return metadata
+            raise ValueError(f"Некорректное значение: {column}. Попробуйте снова.")
         name, data_type = parts
         if (
             not name.isidentifier()
@@ -25,8 +32,7 @@ def create_table(metadata: dict, table_name: str, columns: list[str]) -> dict:
             or name in names
             or (name == "ID" and data_type != "int")
         ):
-            print(f"Некорректное значение: {column}. Попробуйте снова.")
-            return metadata
+            raise ValueError(f"Некорректное значение: {column}. Попробуйте снова.")
         names.add(name)
         if name != "ID":
             schema.append({"name": name, "type": data_type})
@@ -37,15 +43,17 @@ def create_table(metadata: dict, table_name: str, columns: list[str]) -> dict:
     return metadata
 
 
+@handle_db_errors
+@confirm_action("удаление таблицы")
 def drop_table(metadata: dict, table_name: str) -> dict:
     if table_name not in metadata:
-        print(f'Ошибка: Таблица "{table_name}" не существует.')
-        return metadata
+        raise ValueError(f'Таблица "{table_name}" не существует.')
     del metadata[table_name]
     print(f'Таблица "{table_name}" успешно удалена.')
     return metadata
 
 
+@handle_db_errors
 def list_tables(metadata: dict) -> None:
     if not metadata:
         print("Таблиц пока нет.")
@@ -104,6 +112,8 @@ def validate_table_data(schema: list[dict], table_data: list[dict]) -> None:
         ids.add(row["ID"])
 
 
+@handle_db_errors
+@log_time
 def insert(metadata: dict, table_name: str, values: list) -> list[dict]:
     schema = get_schema(metadata, table_name)
     columns = schema[1:]
@@ -119,23 +129,39 @@ def insert(metadata: dict, table_name: str, values: list) -> list[dict]:
     return [*table_data, row]
 
 
+@handle_db_errors
+@log_time
 def select(table_data: list[dict], where_clause: dict | None = None) -> list[dict]:
+    key = (
+        json.dumps(table_data, sort_keys=True, ensure_ascii=False),
+        json.dumps(where_clause, sort_keys=True, ensure_ascii=False),
+    )
+    return _select_cache(
+        key,
+        lambda: [row for row in table_data if matches(row, where_clause)],
+    )
+
+
+def matches(row: dict, where_clause: dict | None) -> bool:
     if where_clause is None:
-        return table_data[:]
-    return [
-        row
-        for row in table_data
-        if all(row.get(name) == value for name, value in where_clause.items())
-    ]
+        return True
+    return all(
+        type(row.get(name)) is type(value) and row.get(name) == value
+        for name, value in where_clause.items()
+    )
 
 
+@handle_db_errors
 def update(table_data: list[dict], set_clause: dict, where_clause: dict) -> list[dict]:
-    matches = select(table_data, where_clause)
+    if "ID" in set_clause:
+        raise ValueError("ID генерируется автоматически и не изменяется.")
     return [
-        dict(row, **set_clause) if row in matches else row.copy() for row in table_data
+        dict(row, **set_clause) if matches(row, where_clause) else row.copy()
+        for row in table_data
     ]
 
 
+@handle_db_errors
+@confirm_action("удаление записей")
 def delete(table_data: list[dict], where_clause: dict) -> list[dict]:
-    matches = select(table_data, where_clause)
-    return [row for row in table_data if row not in matches]
+    return [row for row in table_data if not matches(row, where_clause)]
