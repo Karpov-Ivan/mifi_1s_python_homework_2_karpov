@@ -1,5 +1,6 @@
 import json
 
+from primitive_db.constants import ID_COLUMN, ID_TYPE, PYTHON_TYPES, SUPPORTED_TYPES
 from primitive_db.decorators import (
     confirm_action,
     create_cacher,
@@ -8,18 +9,18 @@ from primitive_db.decorators import (
 )
 from primitive_db.utils import load_table_data
 
-SUPPORTED_TYPES = {"int", "str", "bool"}
 _select_cache = create_cacher()
 
 
 @handle_db_errors
 def create_table(metadata: dict, table_name: str, columns: list[str]) -> dict:
+    """Проверяет схему и добавляет таблицу с автоматическим столбцом ID."""
     if table_name in metadata:
         raise ValueError(f'Таблица "{table_name}" уже существует.')
     if not table_name.isidentifier() or not columns:
         raise ValueError(f"Некорректное значение: {table_name}. Попробуйте снова.")
 
-    schema = [{"name": "ID", "type": "int"}]
+    schema = [{"name": ID_COLUMN, "type": ID_TYPE}]
     names = set()
     for column in columns:
         parts = column.split(":")
@@ -30,11 +31,11 @@ def create_table(metadata: dict, table_name: str, columns: list[str]) -> dict:
             not name.isidentifier()
             or data_type not in SUPPORTED_TYPES
             or name in names
-            or (name == "ID" and data_type != "int")
+            or (name == ID_COLUMN and data_type != ID_TYPE)
         ):
             raise ValueError(f"Некорректное значение: {column}. Попробуйте снова.")
         names.add(name)
-        if name != "ID":
+        if name != ID_COLUMN:
             schema.append({"name": name, "type": data_type})
 
     metadata[table_name] = schema
@@ -46,6 +47,7 @@ def create_table(metadata: dict, table_name: str, columns: list[str]) -> dict:
 @handle_db_errors
 @confirm_action("удаление таблицы")
 def drop_table(metadata: dict, table_name: str) -> dict:
+    """Удаляет таблицу из метаданных после подтверждения пользователя."""
     if table_name not in metadata:
         raise ValueError(f'Таблица "{table_name}" не существует.')
     del metadata[table_name]
@@ -55,6 +57,7 @@ def drop_table(metadata: dict, table_name: str) -> dict:
 
 @handle_db_errors
 def list_tables(metadata: dict) -> None:
+    """Выводит имена всех таблиц или сообщение об их отсутствии."""
     if not metadata:
         print("Таблиц пока нет.")
         return
@@ -62,17 +65,15 @@ def list_tables(metadata: dict) -> None:
         print(f"- {table_name}")
 
 
-PYTHON_TYPES = {"int": int, "str": str, "bool": bool}
-
-
 def get_schema(metadata: dict, table_name: str) -> list[dict]:
+    """Возвращает проверенную схему существующей таблицы."""
     if table_name not in metadata:
         raise ValueError(f'Таблица "{table_name}" не существует.')
     schema = metadata[table_name]
     if (
         not isinstance(schema, list)
         or not schema
-        or schema[0] != {"name": "ID", "type": "int"}
+        or schema[0] != {"name": ID_COLUMN, "type": ID_TYPE}
         or any(
             not isinstance(column, dict)
             or not isinstance(column.get("name"), str)
@@ -88,11 +89,12 @@ def get_schema(metadata: dict, table_name: str) -> list[dict]:
 
 
 def validate_clause(schema: list[dict], clause: dict, *, updating: bool = False):
+    """Проверяет имена столбцов, типы значений и запрет изменения ID."""
     types = {column["name"]: column["type"] for column in schema}
     for name, value in clause.items():
         if name not in types:
             raise ValueError(f"Столбец {name} не существует.")
-        if updating and name == "ID":
+        if updating and name == ID_COLUMN:
             raise ValueError("ID генерируется автоматически и не изменяется.")
         if type(value) is not PYTHON_TYPES[types[name]]:
             raise ValueError(
@@ -101,20 +103,22 @@ def validate_clause(schema: list[dict], clause: dict, *, updating: bool = False)
 
 
 def validate_table_data(schema: list[dict], table_data: list[dict]) -> None:
+    """Проверяет структуру записей, типы полей и уникальность ID."""
     names = {column["name"] for column in schema}
     ids = set()
     for row in table_data:
         if set(row) != names:
             raise ValueError("Данные записи не соответствуют столбцам таблицы.")
         validate_clause(schema, row)
-        if row["ID"] < 1 or row["ID"] in ids:
+        if row[ID_COLUMN] < 1 or row[ID_COLUMN] in ids:
             raise ValueError("ID записей должны быть положительными и уникальными.")
-        ids.add(row["ID"])
+        ids.add(row[ID_COLUMN])
 
 
 @handle_db_errors
 @log_time
 def insert(metadata: dict, table_name: str, values: list) -> list[dict]:
+    """Добавляет запись с новым ID и возвращает обновлённые данные таблицы."""
     schema = get_schema(metadata, table_name)
     columns = schema[1:]
     if len(values) != len(columns):
@@ -125,13 +129,14 @@ def insert(metadata: dict, table_name: str, values: list) -> list[dict]:
     validate_clause(schema, row)
     table_data = load_table_data(table_name)
     validate_table_data(schema, table_data)
-    row["ID"] = max((record["ID"] for record in table_data), default=0) + 1
+    row[ID_COLUMN] = max((record[ID_COLUMN] for record in table_data), default=0) + 1
     return [*table_data, row]
 
 
 @handle_db_errors
 @log_time
 def select(table_data: list[dict], where_clause: dict | None = None) -> list[dict]:
+    """Возвращает записи по условию, используя кэш для одинаковых запросов."""
     key = (
         json.dumps(table_data, sort_keys=True, ensure_ascii=False),
         json.dumps(where_clause, sort_keys=True, ensure_ascii=False),
@@ -143,6 +148,7 @@ def select(table_data: list[dict], where_clause: dict | None = None) -> list[dic
 
 
 def matches(row: dict, where_clause: dict | None) -> bool:
+    """Проверяет соответствие записи условию с учётом типов значений."""
     if where_clause is None:
         return True
     return all(
@@ -153,7 +159,8 @@ def matches(row: dict, where_clause: dict | None) -> bool:
 
 @handle_db_errors
 def update(table_data: list[dict], set_clause: dict, where_clause: dict) -> list[dict]:
-    if "ID" in set_clause:
+    """Возвращает копии записей с изменениями для подходящих строк."""
+    if ID_COLUMN in set_clause:
         raise ValueError("ID генерируется автоматически и не изменяется.")
     return [
         dict(row, **set_clause) if matches(row, where_clause) else row.copy()
@@ -164,4 +171,5 @@ def update(table_data: list[dict], set_clause: dict, where_clause: dict) -> list
 @handle_db_errors
 @confirm_action("удаление записей")
 def delete(table_data: list[dict], where_clause: dict) -> list[dict]:
+    """Возвращает данные без подходящих записей после подтверждения."""
     return [row for row in table_data if not matches(row, where_clause)]

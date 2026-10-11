@@ -1,6 +1,7 @@
 import prompt
 from prettytable import PrettyTable
 
+from primitive_db.constants import ID_COLUMN, META_FILE
 from primitive_db.core import (
     create_table,
     delete,
@@ -23,10 +24,9 @@ from primitive_db.utils import (
     save_table_data,
 )
 
-METADATA_FILE = "db_meta.json"
-
 
 def print_help() -> None:
+    """Выводит команды базы данных и правила ввода значений."""
     print("\n***Операции с данными***")
     print("create_table <таблица> <столбец:тип> ... - создать таблицу")
     print("list_tables - показать список таблиц")
@@ -43,6 +43,7 @@ def print_help() -> None:
 
 @handle_db_errors
 def execute_crud(metadata: dict, request: dict) -> None:
+    """Выполняет CRUD-команду или показывает информацию о таблице."""
     command = request["command"]
     table_name = request["table_name"]
     schema = get_schema(metadata, table_name)
@@ -58,7 +59,7 @@ def execute_crud(metadata: dict, request: dict) -> None:
             return
         save_table_data(table_name, result)
         print(
-            f"Запись с ID={result[-1]['ID']} успешно добавлена "
+            f"Запись с ID={result[-1][ID_COLUMN]} успешно добавлена "
             f'в таблицу "{table_name}".'
         )
     elif command == "select":
@@ -75,6 +76,8 @@ def execute_crud(metadata: dict, request: dict) -> None:
         print(f"Столбцы: {columns}")
         print(f"Количество записей: {len(table_data)}")
     elif command in {"update", "delete"}:
+        if command == "update":
+            validate_clause(schema, request["set_clause"], updating=True)
         selected = select(table_data, where_clause)
         if selected is None:
             return
@@ -82,7 +85,6 @@ def execute_crud(metadata: dict, request: dict) -> None:
             print("Подходящих записей нет.")
             return
         if command == "update":
-            validate_clause(schema, request["set_clause"], updating=True)
             result = update(table_data, request["set_clause"], where_clause)
             action = "обновлена"
         else:
@@ -92,22 +94,26 @@ def execute_crud(metadata: dict, request: dict) -> None:
             return
         save_table_data(table_name, result)
         for row in selected:
-            print(f'Запись с ID={row["ID"]} в таблице "{table_name}" успешно {action}.')
+            print(
+                f'Запись с ID={row[ID_COLUMN]} в таблице "{table_name}" '
+                f"успешно {action}."
+            )
 
 
 @handle_db_errors
 def execute(metadata: dict, request: dict) -> None:
+    """Обрабатывает команду и сохраняет успешные изменения таблиц."""
     command = request["command"]
     previous = metadata.copy()
     if command == "create_table":
         create_table(metadata, request["table_name"], request["columns"])
         if metadata != previous:
             save_table_data(request["table_name"], [])
-            save_metadata(METADATA_FILE, metadata)
+            save_metadata(META_FILE, metadata)
     elif command == "drop_table":
         drop_table(metadata, request["table_name"])
         if metadata != previous:
-            save_metadata(METADATA_FILE, metadata)
+            save_metadata(META_FILE, metadata)
             delete_table_data(request["table_name"])
     elif command == "list_tables":
         list_tables(metadata)
@@ -119,11 +125,13 @@ def execute(metadata: dict, request: dict) -> None:
 
 @handle_db_errors
 def read_metadata():
-    return load_metadata(METADATA_FILE)
+    """Загружает метаданные с централизованной обработкой ошибок."""
+    return load_metadata(META_FILE)
 
 
 @handle_db_errors
 def process_command(metadata: dict, user_input: str) -> bool:
+    """Обрабатывает ввод и возвращает True при команде выхода."""
     request = parse_command(user_input)
     if request["command"] == "exit":
         return True
@@ -132,6 +140,7 @@ def process_command(metadata: dict, user_input: str) -> bool:
 
 
 def run() -> None:
+    """Запускает цикл ввода и обработки команд базы данных."""
     print("***База данных***")
     print_help()
     while True:

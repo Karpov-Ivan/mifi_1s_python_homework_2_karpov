@@ -7,8 +7,10 @@
 В корневой директории репозитория выполните:
 
 ```sh
-uv sync
+make install
 ```
+
+Эквивалент без Make: `uv sync`. Требуются Python 3.12+ и `uv`.
 
 Команда создаёт окружение `.venv` и устанавливает пакет и зависимости
 из `uv.lock`, включая инструменты разработки.
@@ -18,15 +20,18 @@ uv sync
 Через установленную команду:
 
 ```sh
-uv run database
+make run
 ```
+
+Эквивалент без Make: `uv run database`.
 
 ## Проверка кода
 
 ```sh
-uv run ruff check .
-uv run ruff format --check .
+make lint
 ```
+
+Проверяет Ruff и форматирование.
 
 Для форматирования:
 
@@ -96,3 +101,7 @@ info users
 ### Финальная демонстрация
 
 [![Декораторы и подтверждение удаления](https://asciinema.org/a/4xHMVjgzSbJxPAJC.svg)](https://asciinema.org/a/4xHMVjgzSbJxPAJC)
+
+### Полный сценарий
+
+[![Полный цикл работы базы данных](https://asciinema.org/a/CTY8O5ap9nflHS68.svg)](https://asciinema.org/a/CTY8O5ap9nflHS68)

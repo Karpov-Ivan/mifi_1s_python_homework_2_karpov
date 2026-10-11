@@ -1,42 +1,82 @@
-import ast
-import re
+import json
 
-TOKEN_PATTERN = re.compile(
-    r""""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[(),=]|[^\s(),="']+"""
-)
+from primitive_db.constants import STRING_QUOTES, TOKEN_SEPARATORS
 
 
 def tokenize(text: str) -> list[str]:
+    """Разделяет команду на токены, сохраняя кавычки и экранирование."""
     tokens = []
     position = 0
     while position < len(text):
         if text[position].isspace():
             position += 1
             continue
-        match = TOKEN_PATTERN.match(text, position)
-        if match is None:
-            raise ValueError("Некорректные или незакрытые кавычки.")
-        tokens.append(match.group())
-        position = match.end()
+        start = position
+        character = text[position]
+        if character in TOKEN_SEPARATORS:
+            position += 1
+        elif character in STRING_QUOTES:
+            quote = character
+            position += 1
+            while position < len(text) and text[position] != quote:
+                if text[position] == "\\":
+                    position += 1
+                position += 1
+            if position >= len(text):
+                raise ValueError("Некорректные или незакрытые кавычки.")
+            position += 1
+        else:
+            while (
+                position < len(text)
+                and not text[position].isspace()
+                and text[position] not in TOKEN_SEPARATORS + STRING_QUOTES
+            ):
+                position += 1
+        tokens.append(text[start:position])
     return tokens
 
 
+def parse_string(token: str) -> str:
+    """Преобразует строковый литерал в кавычках в значение Python."""
+    if len(token) < 2 or token[-1] != token[0]:
+        raise ValueError(f"Некорректная строка: {token}")
+    if token[0] == '"':
+        return json.loads(token)
+    body = token[1:-1]
+    encoded = []
+    position = 0
+    while position < len(body):
+        character = body[position]
+        if character == "\\":
+            position += 1
+            if position == len(body):
+                raise ValueError(f"Некорректная строка: {token}")
+            if body[position] == "'":
+                encoded.append("'")
+            else:
+                encoded.extend(("\\", body[position]))
+        elif character == '"':
+            encoded.append('\\"')
+        else:
+            encoded.append(character)
+        position += 1
+    return json.loads('"' + "".join(encoded) + '"')
+
+
 def parse_value(token: str):
-    if token.startswith(('"', "'")):
-        try:
-            value = ast.literal_eval(token)
-        except (ValueError, SyntaxError) as error:
-            raise ValueError(f"Некорректная строка: {token}") from error
-        if isinstance(value, str):
-            return value
-    elif token.lower() in {"true", "false"}:
+    """Разбирает строковое, целочисленное или логическое значение."""
+    if token.startswith(tuple(STRING_QUOTES)):
+        return parse_string(token)
+    if token.lower() in {"true", "false"}:
         return token.lower() == "true"
-    elif re.fullmatch(r"[+-]?\d+", token):
+    digits = token[1:] if token.startswith(("+", "-")) else token
+    if digits and digits.isdecimal():
         return int(token)
     raise ValueError(f"Некорректное значение: {token}. Строки должны быть в кавычках.")
 
 
 def parse_assignments(tokens: list[str]) -> dict:
+    """Преобразует присваивания в словарь без повторяющихся столбцов."""
     result = {}
     while tokens:
         if len(tokens) < 3 or tokens[1] != "=" or not tokens[0].isidentifier():
@@ -56,6 +96,7 @@ def parse_assignments(tokens: list[str]) -> dict:
 
 
 def parse_where(clause: str) -> dict:
+    """Разбирает одно условие равенства для фильтрации записей."""
     tokens = tokenize(clause)
     if len(tokens) != 3:
         raise ValueError("WHERE должен содержать одно условие: столбец = значение.")
@@ -63,10 +104,12 @@ def parse_where(clause: str) -> dict:
 
 
 def parse_set(clause: str) -> dict:
+    """Разбирает список присваиваний для обновления записи."""
     return parse_assignments(tokenize(clause))
 
 
 def parse_command(text: str) -> dict:
+    """Проверяет синтаксис команды и возвращает её разобранные аргументы."""
     tokens = tokenize(text)
     if not tokens:
         raise ValueError("Введите команду.")

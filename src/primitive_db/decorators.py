@@ -1,11 +1,41 @@
 import time
-from copy import deepcopy
-from functools import wraps
+
+from primitive_db.constants import CONFIRM_RESPONSE
+
+
+def preserve_function(func):
+    """Создаёт декоратор для сохранения имени и описания функции."""
+
+    def decorator(wrapper):
+        """Переносит сведения исходной функции на обёртку."""
+        wrapper.__name__ = func.__name__
+        wrapper.__qualname__ = func.__qualname__
+        wrapper.__doc__ = func.__doc__
+        wrapper.__module__ = func.__module__
+        wrapper.__annotations__ = func.__annotations__.copy()
+        wrapper.__wrapped__ = func
+        return wrapper
+
+    return decorator
+
+
+def copy_value(value):
+    """Копирует вложенные словари, списки и кортежи для защиты кэша."""
+    if isinstance(value, dict):
+        return {key: copy_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [copy_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(copy_value(item) for item in value)
+    return value
 
 
 def handle_db_errors(func):
-    @wraps(func)
+    """Обрабатывает ошибки операции и возвращает None при неудаче."""
+
+    @preserve_function(func)
     def wrapper(*args, **kwargs):
+        """Вызывает операцию и выводит сообщение при ошибке."""
         try:
             return func(*args, **kwargs)
         except FileNotFoundError:
@@ -27,9 +57,14 @@ def handle_db_errors(func):
 
 
 def confirm_action(action_name):
+    """Создаёт декоратор, запрашивающий подтверждение опасного действия."""
+
     def decorator(func):
-        @wraps(func)
+        """Оборачивает функцию запросом подтверждения действия."""
+
+        @preserve_function(func)
         def wrapper(*args, **kwargs):
+            """Выполняет действие только после ответа y."""
             try:
                 answer = input(
                     f'Вы уверены, что хотите выполнить "{action_name}"? [y/n]: '
@@ -37,7 +72,7 @@ def confirm_action(action_name):
             except (EOFError, KeyboardInterrupt):
                 print()
                 answer = "n"
-            if answer.strip().lower() != "y":
+            if answer.strip().lower() != CONFIRM_RESPONSE:
                 print("Операция отменена.")
                 return None
             return func(*args, **kwargs)
@@ -48,8 +83,11 @@ def confirm_action(action_name):
 
 
 def log_time(func):
-    @wraps(func)
+    """Добавляет вывод времени выполнения обёрнутой функции."""
+
+    @preserve_function(func)
     def wrapper(*args, **kwargs):
+        """Вызывает функцию и выводит затраченное время."""
         started = time.monotonic()
         try:
             return func(*args, **kwargs)
@@ -61,11 +99,13 @@ def log_time(func):
 
 
 def create_cacher():
+    """Создаёт замыкание для кэширования результатов по ключу."""
     cache = {}
 
     def cache_result(key, value_func):
+        """Вычисляет результат один раз для ключа и возвращает его копию."""
         if key not in cache:
-            cache[key] = deepcopy(value_func())
-        return deepcopy(cache[key])
+            cache[key] = copy_value(value_func())
+        return copy_value(cache[key])
 
     return cache_result
