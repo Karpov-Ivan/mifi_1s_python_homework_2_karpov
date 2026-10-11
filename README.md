@@ -18,7 +18,7 @@ uv sync
 Через установленную команду:
 
 ```sh
-uv run project
+uv run database
 ```
 
 ## Проверка кода
@@ -36,7 +36,7 @@ uv run ruff format .
 
 ## Управление таблицами
 
-Запуск: `uv run project`. Типы столбцов: `int`, `str`, `bool`.
+Запуск: `uv run database`. Типы столбцов: `int`, `str`, `bool`.
 Столбец `ID:int` добавляется автоматически.
 
 - `create_table <имя> <столбец:тип> ...` — создать таблицу.
@@ -58,3 +58,30 @@ exit
 ## Демонстрация
 
 [![Запись работы базы данных](https://asciinema.org/a/8GKq6TdJgqnBCxAg.svg)](https://asciinema.org/a/8GKq6TdJgqnBCxAg)
+
+## CRUD-операции
+
+Строки указываются в кавычках, логические значения — `true`/`false`.
+Все поля обязательны; `ID` генерируется автоматически.
+
+- `insert into ... values (...)` — добавить запись без передачи ID.
+- `select from ... [where ...]` — вывести все записи или выборку.
+- `update ... set ... where ...` — изменить подходящие записи.
+- `delete from ... where ...` — удалить подходящие записи.
+- `info <таблица>` — показать столбцы и количество записей.
+
+```text
+create_table users name:str age:int is_active:bool
+insert into users values ("Sergei", 28, true)
+select from users
+select from users where age = 28
+update users set age = 29 where name = "Sergei"
+delete from users where ID = 1
+info users
+```
+
+Данные таблиц хранятся в `data/<имя_таблицы>.json` в текущей директории.
+
+### Демонстрация CRUD
+
+[![Запись CRUD-операций](https://asciinema.org/a/sCEivTaO7Wnzo0ow.svg)](https://asciinema.org/a/sCEivTaO7Wnzo0ow)
